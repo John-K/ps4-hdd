@@ -14,7 +14,7 @@
 
 static const uint32_t SECTOR_SIZE = 512;
 
-__attribute__((unused)) static inline void print_hex(const char * label, const std::vector<uint8_t> &bytes) {
+[[maybe_unused]] static inline void print_hex(const char * label, const std::vector<uint8_t> &bytes) {
    std::print("{}: ", label);
     for (auto &hex: bytes) {
         std::print("{:02X}", hex);
