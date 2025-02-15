@@ -1,5 +1,11 @@
 include Common.mak
 
+# Building for MacOS is enough of a snowflakce
+# that is has its own makefile
+ifeq ($(shell uname -s), Darwin)
+$(error Please run make -f Makefile.MacOS $@)
+endif
+
 CC=gcc
 CXX=g++
 STRIP=strip
