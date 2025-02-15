@@ -14,7 +14,7 @@
 
 static const uint32_t SECTOR_SIZE = 512;
 
-static inline void print_hex(const char * label, const std::vector<uint8_t> &bytes) {
+__attribute__((unused)) static inline void print_hex(const char * label, const std::vector<uint8_t> &bytes) {
    std::print("{}: ", label);
     for (auto &hex: bytes) {
         std::print("{:02X}", hex);
@@ -140,6 +140,7 @@ int main(int argc, const char *argv[]) {
         threads.emplace_back([sf, i, source, slice_start, slice_end, xts_key, xts_tweak, iv_offset](mio::shared_mmap_sink output) {
             sf.wait();
             auto xts = Cipher::AES::XTS_128(xts_key, xts_tweak, SECTOR_SIZE);
+            (void)i; // so compiler doesn't complain when the below line is commented out
             //std::println("Thread {:2d} sectors {:9d} - {:9d}", i, slice_start, slice_end);
 
             for (uint64_t sector_index = slice_start; sector_index < slice_end; ++sector_index) {
