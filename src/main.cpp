@@ -160,11 +160,17 @@ int main(int argc, const char *argv[]) {
         t.join();
     }
 
+    std::println("Decryption complete. Flushing data to disk...");
+    output.sync(error);
+    if (error) {
+        std::println("Error syncing output file: {}", error.message());
+        return -1;
+    }
+
     auto end_time = std::chrono::high_resolution_clock::now();
     auto elapsed_sec = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
     std::println("Decrypted in {}m{:02}s", elapsed_sec / 60, elapsed_sec % 60);
     std::printf("Speed %4.0f MiB/sec\n", source_len / 1024 / 1024.0 / elapsed_sec);
-    std::println("Please wait while data is flushed to disk");
 
     return 0;
 }
