@@ -12,7 +12,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Makefile build
-      run: make
+      run: make CXX=clang++-18
     - uses: actions/upload-artifact@v4
       with: 
         compression-level: 9
