@@ -1,4 +1,4 @@
-# ps4-hdd
+# ps4-hdd [![ps4-hdd cross-platform CI](https://github.com/John-K/ps4-hdd/actions/workflows/cross_platform_ci.yml/badge.svg)](https://github.com/John-K/ps4-hdd/actions/workflows/cross_platform_ci.yml)
 A lightning quick tool to decrypt Playstation 4 hard disk partitions with EAP keys.
 
 Makes use of hardware accelerated crypto (AES-NI for x86_64, NEON for ARM64), multi-threading, and memory mapped files to make full use of your CPU and SSD.
