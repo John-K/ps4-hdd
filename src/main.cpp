@@ -10,7 +10,7 @@
 #include <vector>
 #include "mio.hpp"
 #include "aes_xts.hpp"
-
+#include <sys/mman.h>
 
 static const uint32_t SECTOR_SIZE = 512;
 
@@ -120,13 +120,22 @@ int main(int argc, const char *argv[]) {
     std::vector<std::thread> threads;
     std::promise<void> p;
     auto sf = p.get_future().share();
-    std::println("Decrypting '{}' with {} threads using AES-NI", in_filepath, processor_count);
+    std::println("Decrypting '{}' with {} threads using {}", in_filepath, processor_count, Cipher::Aes<128>::AES_TECHNOLOGY);
 
     //print_hex("XTS KEY", xts_key);
     //print_hex("XTS TWK", xts_tweak);
 
+    int page_size = getpagesize();
+    int sectors_per_page = page_size / SECTOR_SIZE;
+    std::println("Page size is {} bytes, {} sectors per page", page_size, sectors_per_page);
     uint64_t num_sectors = source_len / SECTOR_SIZE;
     uint64_t slice_size = num_sectors / processor_count;
+    if (slice_size % sectors_per_page != 0) {
+	auto diff = sectors_per_page - slice_size % sectors_per_page;
+        std::println("Adjusting slice_size by {} to match page size boundary", diff);
+        slice_size += diff;
+        std::println("slice_size % sectors_per_page is now {}", slice_size % sectors_per_page);
+    }
     uint64_t slice_start = 0;
 
     // create threads
@@ -142,8 +151,16 @@ int main(int argc, const char *argv[]) {
             auto xts = Cipher::AES::XTS_128(xts_key, xts_tweak, SECTOR_SIZE);
             (void)i; // so compiler doesn't complain when the below line is commented out
             //std::println("Thread {:2d} sectors {:9d} - {:9d}", i, slice_start, slice_end);
-
+            uint64_t count = 0;
+            auto unused_ptr_base = &source[0];
             for (uint64_t sector_index = slice_start; sector_index < slice_end; ++sector_index) {
+                // release source memory every 100MiB
+		// TODO: Windows equivalent
+                if (count++ == (100 * 1024 * 1024 / SECTOR_SIZE)) {
+                    madvise((void *)unused_ptr_base, 100 * 1024 * 1024, MADV_DONTNEED);
+                    unused_ptr_base += 100 * 1024 * 1024;
+                    count = 0;
+                }
                 xts.crypt(Cipher::Mode::Decrypt, sector_index + iv_offset, &source[SECTOR_SIZE * sector_index], &output[SECTOR_SIZE * sector_index]);
             }
         }, output);
