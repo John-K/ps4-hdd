@@ -9,7 +9,7 @@
 #endif
 
 uint32_t platform_getpagesize() {
-#if defined(__WIN32) || defined(__WIN64)
+#if defined(_WIN32) || defined(_WIN64)
     SYSTEM_INFO sys_info;
     GetSystemInfo(&sys_info);
     return sys_info.dwPageSize
@@ -19,7 +19,7 @@ uint32_t platform_getpagesize() {
 }
 
 void platform_release_mmap_region(void *region_start, size_t len) {
-#if defined(__WIN32) || defined(__WIN64)
+#if defined(_WIN32) || defined(_WIN64)
 	VirtualFree(region_start, len, MEM_DECOMMIT);
     VirtualAlloc(region_start, len, MEM_COMMIT, PAGE_NOCACHE);
 #else
