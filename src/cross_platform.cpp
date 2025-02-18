@@ -12,7 +12,7 @@ uint32_t platform_getpagesize() {
 #if defined(_WIN32) || defined(_WIN64)
     SYSTEM_INFO sys_info;
     GetSystemInfo(&sys_info);
-    return sys_info.dwPageSize
+    return sys_info.dwPageSize;
 #else
     return getpagesize();
 #endif
