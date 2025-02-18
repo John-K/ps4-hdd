@@ -10,7 +10,9 @@
 #include <vector>
 #include "mio.hpp"
 #include "aes_xts.hpp"
+#if !defined(_WIN32) && !defined(_WIN64)
 #include <sys/mman.h>
+#endif
 
 static const uint32_t SECTOR_SIZE = 512;
 
