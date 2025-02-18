@@ -8,11 +8,9 @@
 #include <stdio.h>
 #include <thread>
 #include <vector>
-#include "mio.hpp"
 #include "aes_xts.hpp"
-#if !defined(_WIN32) && !defined(_WIN64)
-#include <sys/mman.h>
-#endif
+#include "cross_platform.hpp"
+#include "mio.hpp"
 
 static const uint32_t SECTOR_SIZE = 512;
 
@@ -120,7 +118,7 @@ int main(int argc, const char *argv[]) {
     //print_hex("XTS KEY", xts_key);
     //print_hex("XTS TWK", xts_tweak);
 
-    int page_size = getpagesize();
+    uint32_t page_size = platform_getpagesize();
     int sectors_per_page = page_size / SECTOR_SIZE;
     std::println("Page size is {} bytes, {} sectors per page", page_size, sectors_per_page);
     uint64_t num_sectors = source_len / SECTOR_SIZE;
@@ -158,14 +156,13 @@ int main(int argc, const char *argv[]) {
 	    sf.wait();
             for (uint64_t sector_index = slice_start; sector_index < slice_end; ++sector_index) {
                 // release source memory every 100MiB
-#if !defined(_WIN32) && !defined(_WIN64)
-		// TODO: Windows equivalent
                 if (count++ == (100 * 1024 * 1024 / SECTOR_SIZE)) {
-                    madvise((void *)unused_ptr_base, 100 * 1024 * 1024, MADV_DONTNEED);
+		    platform_release_mmap_region((void *)unused_ptr_base, 100 * 1024 * 1024);
+                    //madvise((void *)unused_ptr_base, 100 * 1024 * 1024, MADV_DONTNEED);
                     unused_ptr_base += 100 * 1024 * 1024;
                     count = 0;
                 }
-#endif
+
                 xts.crypt(Cipher::Mode::Decrypt, sector_index + iv_offset, &source[SECTOR_SIZE * sector_index], &output[SECTOR_SIZE * (sector_index - slice_start)]);
             }
         });
@@ -173,7 +170,6 @@ int main(int argc, const char *argv[]) {
     }
 
     auto start_time = std::chrono::high_resolution_clock::now();
-
     // kick off threads
     p.set_value();
 
