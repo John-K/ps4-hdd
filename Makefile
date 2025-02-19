@@ -30,4 +30,4 @@ all: $(TARGET)
 
 .PHONY: clean
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(addprefix $(OBJDIR)/, $(OBJS)) $(TARGET)

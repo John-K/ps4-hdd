@@ -6,11 +6,12 @@
 #include <print>
 #include <stdint.h>
 #include <stdio.h>
+#include <string>
 #include <thread>
 #include <vector>
 #include "aes_xts.hpp"
 #include "cross_platform.hpp"
-#include "indicators.hpp"
+#include "progress_bars.hpp"
 #include "mio.hpp"
 
 static const uint32_t SECTOR_SIZE = 512;
@@ -111,13 +112,12 @@ int main(int argc, const char *argv[]) {
     }
 
     const auto processor_count = std::thread::hardware_concurrency();
-    std::vector<std::unique_ptr<indicators::BlockProgressBar>> bars;
-    indicators::DynamicProgress<indicators::BlockProgressBar> dyna_bars;
+    ProgressBars bars;
     std::vector<std::thread> threads;
     std::promise<void> p;
     auto sf = p.get_future().share();
     std::println("Decrypting '{}' with {} threads using {}", in_filepath, processor_count, Cipher::Aes<128>::AES_TECHNOLOGY);
-    dyna_bars.set_option(indicators::option::HideBarWhenComplete{true});
+
     //print_hex("XTS KEY", xts_key);
     //print_hex("XTS TWK", xts_tweak);
 
@@ -133,7 +133,7 @@ int main(int argc, const char *argv[]) {
         //std::println("slice_size % sectors_per_page is now {}", slice_size % sectors_per_page);
     }
     uint64_t slice_start = 0;
-    indicators::show_console_cursor(false);
+
     // create threads
     for (auto i = processor_count; i > 0; --i) {
         uint64_t slice_end = slice_start + slice_size;
@@ -144,27 +144,14 @@ int main(int argc, const char *argv[]) {
         }
 
         auto thread_bar_max = (slice_end-slice_start)*SECTOR_SIZE/(100 * 1024 * 1024) + 1;
-        bars.emplace_back(
-            std::make_unique<indicators::BlockProgressBar>(
-                indicators::option::BarWidth{50},
-                indicators::option::ForegroundColor{indicators::Color::yellow},
-                indicators::option::FontStyles{std::vector<indicators::FontStyle>{indicators::FontStyle::bold}},
-                indicators::option::MaxProgress{thread_bar_max},
-                indicators::option::Start{"🔐["},
-                indicators::option::End{"]📂"},
-                indicators::option::ShowElapsedTime{true},
-                indicators::option::ShowRemainingTime{true},
-                indicators::option::PrefixText{std::format("Thread {:3d} ", i)}
-        ));
-        auto bar_idx = dyna_bars.push_back(*bars.back());
+        auto bar_idx = bars.new_bar(i, thread_bar_max);
 
-        threads.emplace_back([&dyna_bars, thread_bar_max, sf, i, source, out_filepath,
+        threads.emplace_back([&bars, thread_bar_max, sf, i, source, out_filepath,
                               slice_start, slice_end, xts_key, xts_tweak, iv_offset](size_t bar_idx) {
             std::error_code local_error;
             mio::mmap_sink output = mio::make_mmap_sink(out_filepath, slice_start * SECTOR_SIZE, (slice_end - slice_start) * SECTOR_SIZE, local_error);
             if (local_error) {
                 std::println("Thread {}: could not create mmap sink from {} for {} bytes: {}", i, slice_start * SECTOR_SIZE, (slice_end - slice_start) * SECTOR_SIZE, local_error.message());
-                indicators::show_console_cursor(true);
                 exit(1);
             }
             auto xts = Cipher::AES::XTS_128(xts_key, xts_tweak, SECTOR_SIZE);
@@ -180,27 +167,19 @@ int main(int argc, const char *argv[]) {
                     platform_release_mmap_region((void *)unused_ptr_base, 100 * 1024 * 1024);
                     unused_ptr_base += 100 * 1024 * 1024;
                     count = 0;
-                    dyna_bars[bar_idx].tick();
+                    bars.tick(bar_idx);
                 }
 
                 xts.crypt(Cipher::Mode::Decrypt, sector_index + iv_offset,
                           &source[SECTOR_SIZE * sector_index], 
                           &output[SECTOR_SIZE * (sector_index - slice_start)]);
             }
-            dyna_bars[bar_idx].set_option(indicators::option::ShowRemainingTime{false});
-            dyna_bars[bar_idx].set_option(indicators::option::PostfixText{"Syncing"});
+            bars.post_work(bar_idx, "Syncing");
             output.sync(local_error);
             if (local_error) {
-                dyna_bars[bar_idx].set_option(indicators::option::ForegroundColor{indicators::Color::red});
-                dyna_bars[bar_idx].set_option(indicators::option::PostfixText{std::format("ERR: {}", local_error.message()).c_str()});
+                bars.set_error(bar_idx, local_error.message());
             } else {
-                // NOTE: ordering here is somewhat load-bearing.
-                //       if mark_as_completed() is last, then
-                //       one progress bar usually gets left behind
-                dyna_bars[bar_idx].mark_as_completed();
-                dyna_bars[bar_idx].set_option(indicators::option::PostfixText{""});
-                dyna_bars[bar_idx].set_option(indicators::option::ForegroundColor{indicators::Color::white});
-                dyna_bars[bar_idx].set_progress(thread_bar_max);
+                bars.set_complete(bar_idx, thread_bar_max);
             }
         }, bar_idx);
         slice_start += slice_size;
@@ -219,7 +198,6 @@ int main(int argc, const char *argv[]) {
     auto elapsed_sec = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
     std::println("Decrypted in {}m{:02}s", elapsed_sec / 60, elapsed_sec % 60);
     std::printf("Speed %4.0f MiB/sec\n", source_len / 1024 / 1024.0 / elapsed_sec);
-    indicators::show_console_cursor(true);
 
     return 0;
 }
