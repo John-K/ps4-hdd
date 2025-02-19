@@ -8,9 +8,9 @@
 #include <stdio.h>
 #include <thread>
 #include <vector>
-#include "mio.hpp"
 #include "aes_xts.hpp"
-
+#include "cross_platform.hpp"
+#include "mio.hpp"
 
 static const uint32_t SECTOR_SIZE = 512;
 
@@ -109,24 +109,26 @@ int main(int argc, const char *argv[]) {
         return -1;
     }
 
-    // map output file read / write with shared semantics
-    mio::shared_mmap_sink output = mio::make_mmap_sink(out_filepath, 0, mio::map_entire_file, error);
-    if (error) {
-        std::println("Error mapping output file '{}': {}", out_filepath, error.message());
-        return -1;
-    }
-
     const auto processor_count = std::thread::hardware_concurrency();
     std::vector<std::thread> threads;
     std::promise<void> p;
     auto sf = p.get_future().share();
-    std::println("Decrypting '{}' with {} threads using AES-NI", in_filepath, processor_count);
+    std::println("Decrypting '{}' with {} threads using {}", in_filepath, processor_count, Cipher::Aes<128>::AES_TECHNOLOGY);
 
     //print_hex("XTS KEY", xts_key);
     //print_hex("XTS TWK", xts_tweak);
 
+    uint32_t page_size = platform_getpagesize();
+    int sectors_per_page = page_size / SECTOR_SIZE;
+    std::println("Page size is {} bytes, {} sectors per page", page_size, sectors_per_page);
     uint64_t num_sectors = source_len / SECTOR_SIZE;
     uint64_t slice_size = num_sectors / processor_count;
+    if (slice_size % sectors_per_page != 0) {
+	auto diff = sectors_per_page - slice_size % sectors_per_page;
+        std::println("Adjusting slice_size by {} to match page size boundary", diff);
+        slice_size += diff;
+        //std::println("slice_size % sectors_per_page is now {}", slice_size % sectors_per_page);
+    }
     uint64_t slice_start = 0;
 
     // create threads
@@ -137,34 +139,43 @@ int main(int argc, const char *argv[]) {
         if (i == 1) {
             slice_end = num_sectors;
         }
-        threads.emplace_back([sf, i, source, slice_start, slice_end, xts_key, xts_tweak, iv_offset](mio::shared_mmap_sink output) {
-            sf.wait();
-            auto xts = Cipher::AES::XTS_128(xts_key, xts_tweak, SECTOR_SIZE);
-            (void)i; // so compiler doesn't complain when the below line is commented out
-            //std::println("Thread {:2d} sectors {:9d} - {:9d}", i, slice_start, slice_end);
 
+        threads.emplace_back([sf, i, source, out_filepath, slice_start, slice_end, xts_key, xts_tweak, iv_offset]() {
+            std::error_code local_error;
+	    mio::mmap_sink output = mio::make_mmap_sink(out_filepath, slice_start * SECTOR_SIZE, (slice_end - slice_start) * SECTOR_SIZE, local_error);
+            if (local_error) {
+                std::println("Thread {}: could not create mmap sink from {} for {} bytes: {}", i, slice_start * SECTOR_SIZE, (slice_end - slice_start) * SECTOR_SIZE, local_error.message());
+		exit(1);
+	    }
+            auto xts = Cipher::AES::XTS_128(xts_key, xts_tweak, SECTOR_SIZE);
+
+            //std::println("Thread {:2d} sectors {:9d} - {:9d}", i, slice_start, slice_end);
+            uint64_t count = 0;
+            auto unused_ptr_base = &source[0];
+
+	    sf.wait();
             for (uint64_t sector_index = slice_start; sector_index < slice_end; ++sector_index) {
-                xts.crypt(Cipher::Mode::Decrypt, sector_index + iv_offset, &source[SECTOR_SIZE * sector_index], &output[SECTOR_SIZE * sector_index]);
+                // release source memory every 100MiB
+                if (count++ == (100 * 1024 * 1024 / SECTOR_SIZE)) {
+		    platform_release_mmap_region((void *)unused_ptr_base, 100 * 1024 * 1024);
+                    //madvise((void *)unused_ptr_base, 100 * 1024 * 1024, MADV_DONTNEED);
+                    unused_ptr_base += 100 * 1024 * 1024;
+                    count = 0;
+                }
+
+                xts.crypt(Cipher::Mode::Decrypt, sector_index + iv_offset, &source[SECTOR_SIZE * sector_index], &output[SECTOR_SIZE * (sector_index - slice_start)]);
             }
-        }, output);
+        });
         slice_start += slice_size;
     }
 
     auto start_time = std::chrono::high_resolution_clock::now();
-
     // kick off threads
     p.set_value();
 
     // wait for everything to finish
     for (auto &t: threads) {
         t.join();
-    }
-
-    std::println("Decryption complete. Flushing data to disk...");
-    output.sync(error);
-    if (error) {
-        std::println("Error syncing output file: {}", error.message());
-        return -1;
     }
 
     auto end_time = std::chrono::high_resolution_clock::now();
