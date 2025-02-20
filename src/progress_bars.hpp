@@ -1,19 +1,11 @@
 #pragma once
 
 #include <memory>
-#include <vector>
-//#include "indicators.hpp"
-
-namespace indicators {
-    class BlockProgressBar;
-    template <typename Indicator> class DynamicProgress;
-}
 
 class ProgressBars {
-#ifdef PROGRESSBAR_INTERNAL
-    std::vector<std::unique_ptr<indicators::BlockProgressBar>> bar_storage;
-    indicators::DynamicProgress<indicators::BlockProgressBar> bars;
-#endif
+private:
+    class private_stuff;
+    std::unique_ptr<private_stuff> priv;
 public:
     ProgressBars();
     ~ProgressBars();
