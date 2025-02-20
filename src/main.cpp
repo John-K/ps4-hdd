@@ -135,11 +135,11 @@ int main(int argc, const char *argv[]) {
     uint64_t slice_start = 0;
 
     // create threads
-    for (auto i = processor_count; i > 0; --i) {
+    for (auto i = 1; i <= processor_count; ++i) {
         uint64_t slice_end = slice_start + slice_size;
 
         // last thread might get fewer sectors than a normal slice
-        if (i == 1) {
+        if (i == processor_count) {
             slice_end = num_sectors;
         }
 
