@@ -143,7 +143,7 @@ int main(int argc, const char *argv[]) {
             slice_end = num_sectors;
         }
 
-        auto thread_bar_max = (slice_end-slice_start)*SECTOR_SIZE/(100 * 1024 * 1024) + 1;
+        auto thread_bar_max = 101;
         auto bar_idx = bars.new_bar(i, thread_bar_max);
 
         threads.emplace_back([&bars, thread_bar_max, sf, i, source, out_filepath,
@@ -157,17 +157,26 @@ int main(int argc, const char *argv[]) {
             auto xts = Cipher::AES::XTS_128(xts_key, xts_tweak, SECTOR_SIZE);
 
             //std::println("Thread {:2d} sectors {:9d} - {:9d}", i, slice_start, slice_end);
-            uint64_t count = 0;
+            uint64_t input_flush_counter = 0;
             auto unused_ptr_base = &source[0];
+            uint64_t one_percent = (slice_end - slice_start) * 0.01;
+            uint64_t next_tick_pos = slice_start + one_percent;
 
+            // wait for all threads to be ready
             sf.wait();
+
             for (uint64_t sector_index = slice_start; sector_index < slice_end; ++sector_index) {
                 // release source memory every 100MiB
-                if (count++ == (100 * 1024 * 1024 / SECTOR_SIZE)) {
+                if (input_flush_counter++ == (100 * 1024 * 1024 / SECTOR_SIZE)) {
                     platform_release_mmap_region((void *)unused_ptr_base, 100 * 1024 * 1024);
                     unused_ptr_base += 100 * 1024 * 1024;
-                    count = 0;
+                    input_flush_counter = 0;
+                }
+
+                // tick progress every 1%
+                if (sector_index > next_tick_pos) {
                     bars.tick(bar_idx);
+                    next_tick_pos += one_percent;
                 }
 
                 xts.crypt(Cipher::Mode::Decrypt, sector_index + iv_offset,
