@@ -6,10 +6,12 @@
 #include <print>
 #include <stdint.h>
 #include <stdio.h>
+#include <string>
 #include <thread>
 #include <vector>
 #include "aes_xts.hpp"
 #include "cross_platform.hpp"
+#include "progress_bars.hpp"
 #include "mio.hpp"
 
 static const uint32_t SECTOR_SIZE = 512;
@@ -110,6 +112,7 @@ int main(int argc, const char *argv[]) {
     }
 
     const auto processor_count = std::thread::hardware_concurrency();
+    ProgressBars bars;
     std::vector<std::thread> threads;
     std::promise<void> p;
     auto sf = p.get_future().share();
@@ -120,12 +123,12 @@ int main(int argc, const char *argv[]) {
 
     uint32_t page_size = platform_getpagesize();
     int sectors_per_page = page_size / SECTOR_SIZE;
-    std::println("Page size is {} bytes, {} sectors per page", page_size, sectors_per_page);
+    //std::println("Page size is {} bytes, {} sectors per page", page_size, sectors_per_page);
     uint64_t num_sectors = source_len / SECTOR_SIZE;
     uint64_t slice_size = num_sectors / processor_count;
     if (slice_size % sectors_per_page != 0) {
-	auto diff = sectors_per_page - slice_size % sectors_per_page;
-        std::println("Adjusting slice_size by {} to match page size boundary", diff);
+        auto diff = sectors_per_page - slice_size % sectors_per_page;
+        //std::println("Adjusting slice_size by {} to match page size boundary", diff);
         slice_size += diff;
         //std::println("slice_size % sectors_per_page is now {}", slice_size % sectors_per_page);
     }
@@ -140,32 +143,45 @@ int main(int argc, const char *argv[]) {
             slice_end = num_sectors;
         }
 
-        threads.emplace_back([sf, i, source, out_filepath, slice_start, slice_end, xts_key, xts_tweak, iv_offset]() {
+        auto thread_bar_max = (slice_end-slice_start)*SECTOR_SIZE/(100 * 1024 * 1024) + 1;
+        auto bar_idx = bars.new_bar(i, thread_bar_max);
+
+        threads.emplace_back([&bars, thread_bar_max, sf, i, source, out_filepath,
+                              slice_start, slice_end, xts_key, xts_tweak, iv_offset](size_t bar_idx) {
             std::error_code local_error;
-	    mio::mmap_sink output = mio::make_mmap_sink(out_filepath, slice_start * SECTOR_SIZE, (slice_end - slice_start) * SECTOR_SIZE, local_error);
+            mio::mmap_sink output = mio::make_mmap_sink(out_filepath, slice_start * SECTOR_SIZE, (slice_end - slice_start) * SECTOR_SIZE, local_error);
             if (local_error) {
                 std::println("Thread {}: could not create mmap sink from {} for {} bytes: {}", i, slice_start * SECTOR_SIZE, (slice_end - slice_start) * SECTOR_SIZE, local_error.message());
-		exit(1);
-	    }
+                exit(1);
+            }
             auto xts = Cipher::AES::XTS_128(xts_key, xts_tweak, SECTOR_SIZE);
 
             //std::println("Thread {:2d} sectors {:9d} - {:9d}", i, slice_start, slice_end);
             uint64_t count = 0;
             auto unused_ptr_base = &source[0];
 
-	    sf.wait();
+            sf.wait();
             for (uint64_t sector_index = slice_start; sector_index < slice_end; ++sector_index) {
                 // release source memory every 100MiB
                 if (count++ == (100 * 1024 * 1024 / SECTOR_SIZE)) {
-		    platform_release_mmap_region((void *)unused_ptr_base, 100 * 1024 * 1024);
-                    //madvise((void *)unused_ptr_base, 100 * 1024 * 1024, MADV_DONTNEED);
+                    platform_release_mmap_region((void *)unused_ptr_base, 100 * 1024 * 1024);
                     unused_ptr_base += 100 * 1024 * 1024;
                     count = 0;
+                    bars.tick(bar_idx);
                 }
 
-                xts.crypt(Cipher::Mode::Decrypt, sector_index + iv_offset, &source[SECTOR_SIZE * sector_index], &output[SECTOR_SIZE * (sector_index - slice_start)]);
+                xts.crypt(Cipher::Mode::Decrypt, sector_index + iv_offset,
+                          &source[SECTOR_SIZE * sector_index], 
+                          &output[SECTOR_SIZE * (sector_index - slice_start)]);
             }
-        });
+            bars.post_work(bar_idx, "Syncing");
+            output.sync(local_error);
+            if (local_error) {
+                bars.set_error(bar_idx, local_error.message());
+            } else {
+                bars.set_complete(bar_idx, thread_bar_max);
+            }
+        }, bar_idx);
         slice_start += slice_size;
     }
 

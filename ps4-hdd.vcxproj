@@ -127,12 +127,14 @@
     <ClCompile Include="src/aes_xts.cpp" />
     <ClCompile Include="src/main.cpp" />
     <ClCompile Include="src/cross_platform.cpp" />
+    <ClCompile Include="src/progress_bars.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src/AES.hpp" />
     <ClInclude Include="src/aes_xts.hpp" />
     <ClInclude Include="src/mio.hpp" />
     <ClInclude Include="src/cross_platform.hpp" />
+    <ClInclude Include="src/progress_bars.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
