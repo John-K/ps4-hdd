@@ -2979,6 +2979,9 @@ private:
 public:
   void print_progress() {
     std::lock_guard<std::mutex> lock{mutex_};
+    // signal start of screen update
+    // per https://gitlab.com/gnachman/iterm2/-/wikis/synchronized-updates-spec
+    std::cout << "\033[?2026h";
     auto &hide_bar_when_complete = get_value<details::ProgressBarOption::hide_bar_when_complete>();
     if (hide_bar_when_complete) {
       // Hide completed bars
@@ -3012,6 +3015,8 @@ public:
     }
     total_count_ = bars_.size();
     std::cout << termcolor::reset;
+    // signal end of screen update
+    std::cout << "\033[?2026l";
   }
 };
 

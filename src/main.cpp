@@ -135,7 +135,7 @@ int main(int argc, const char *argv[]) {
     uint64_t slice_start = 0;
 
     // create threads
-    for (auto i = 1; i <= processor_count; ++i) {
+    for (size_t i = 1; i <= processor_count; ++i) {
         uint64_t slice_end = slice_start + slice_size;
 
         // last thread might get fewer sectors than a normal slice
