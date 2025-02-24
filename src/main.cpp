@@ -159,7 +159,7 @@ int main(int argc, const char *argv[]) {
             //std::println("Thread {:2d} sectors {:9d} - {:9d}", i, slice_start, slice_end);
             uint64_t input_flush_counter = 0;
             auto unused_ptr_base = &source[0];
-            uint64_t one_percent = (slice_end - slice_start) * 0.01;
+            uint64_t one_percent = static_cast<uint64_t>((slice_end - slice_start) * 0.01);
             uint64_t next_tick_pos = slice_start + one_percent;
 
             // wait for all threads to be ready
